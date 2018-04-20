@@ -1,6 +1,5 @@
 package me.zhiwei
 
-import java.util.Date
 import org.apache.spark.rdd.RDD
 
 
@@ -17,9 +16,5 @@ object utils {
 
 }
 
-object testUtil extends App {
-  override def main(args: Array[String]): Unit = {
-    println("start at - %s".format(new Date()))
-  }
-}
+
 

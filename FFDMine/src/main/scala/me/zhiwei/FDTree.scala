@@ -1,110 +1,96 @@
 package me.zhiwei
 
 import scala.collection.mutable.ArrayBuffer
-
-object FDTree {
-
-  def findSubtrees( leaves: ArrayBuffer[TreeNode] ): ArrayBuffer[TreeNode] = {
-    val sub = for ( leaf <- leaves; trees = leaf.subtrees; node <- trees) yield node
-    sub.distinct
-  }
-
-}
+import scala.collection.mutable
 
 
-class FDTree(properties: ArrayBuffer[String]) {
+class FDTree(properties: Array[String]) {
 
   val maxLevel: Int = properties.length - 1
   var spanningLevel: Int = 0
-  var root = new TreeNode(properties, "", ArrayBuffer[TreeNode]())
+  var lhsSize: Int = 1
+  private val branches = ArrayBuffer[TreeNode]()
+  val nontrivialMinNodes =  mutable.Set[TreeNode]()
+
 
   for( i <- properties.indices ) {
-    val lhs = properties.clone()
+    val lhs = properties.to[ArrayBuffer].clone()
     val rhs = properties(i)
     lhs.remove(i)
-    val trnode = new TreeNode(lhs, rhs, ArrayBuffer[TreeNode]())
-    root.subtrees.append(trnode)
+    val node = new TreeNode(lhs.toSet, rhs)
+    branches.append(node)
   }
 
   spanningLevel += 1
-  var bottomSubtrees: ArrayBuffer[TreeNode] = root.subtrees
+  var bottom = ArrayBuffer[TreeNode]()
 
   override def toString: String =
-    "<FDTree>\nmax level: %d\nspanning level: %d\n%s".format(
-      maxLevel, spanningLevel, root)
+    "<FDTree>\nmax level: %d\nspanning level: %d\nbranches: %s".format(
+      maxLevel, spanningLevel, branches)
 
-  def unibottom(): ArrayBuffer[TreeNode] = {
-    bottomSubtrees.distinct
+  def bottomNodes(): Set[TreeNode] = {
+    /** 清除节点，lhs 为 nontrivialMinNodes 中节点的 lhs 超集的
+      * 通过调用 bottomNode() 得到需要检测是否为依赖的节点 */
+
+    if ( bottom.isEmpty || bottom.last.left.size == 1 ) bottom.toSet
+    /** NOTE: 第一次生成后，节点 lhs 为单属性，无需与 nontrivialMinNodes 中进行匹配*/
+    if ( spanningLevel == 1 ) Set[TreeNode]() /** NOTE: only branches contained in bottom */
+    if ( nontrivialMinNodes.isEmpty ) bottom.toSet
+
+    bottom.filter(x => !nontrivialMinNodes.map(
+      a => a.right == x.right && a.left.subsetOf(x.left)).contains(true)).toSet
   }
 
-  def ispanning(): Boolean = spanningLevel < maxLevel
+  /** 初始化时已经生成出了 size 为 maxLevel - 1 的 lhs */
+  def ispanning(): Boolean = spanningLevel < maxLevel && lhsSize < maxLevel - 1
 
   def spanning(): Unit = {
-    if ( !ispanning() ) {
-      throw new IllegalArgumentException("can not spanning")
+    if (!ispanning()) {
+      throw new IllegalArgumentException("Can not span, exceed spanningLevel limit")
     }
+    spanningLevel += 1
 
-    val bottoms: ArrayBuffer[TreeNode] = unibottom()
-    for ( node <- bottoms ) {
-      val properties: ArrayBuffer[String] = node.left
+//    println("[INFO] spanningLevel: %d".format(spanningLevel))
+//    println("[INFO] lhsSize: %d".format(lhsSize))
+//    println("[DEBUG] branches size: %d".format(branches.length))
+    val bottle = ArrayBuffer[TreeNode]()
+    for ( node <- branches ) {
       val rhs: String = node.right
-      for ( i <- properties.indices ) {
-        val lhs: ArrayBuffer[String] = properties.clone()
-        lhs.remove(i)
-        val trnode: TreeNode = new TreeNode(lhs, rhs, ArrayBuffer[TreeNode]())
-        node.subtrees.append(trnode)
+      for ( x <- node.left.toArray.combinations(lhsSize).toList ) {
+        bottle.append(new TreeNode(x.toSet, rhs))
       }
     }
+    /** NOTE: nodes contained in bottom have the same lhs size*/
+    bottom = bottle
+//    println("[DEBUG] bottom len: %d".format(bottom.length))
 
-    bottomSubtrees = FDTree.findSubtrees(bottoms)
-    spanningLevel += 1
-    println("lv%d - in spanning bots len: %d".format(spanningLevel, bottomSubtrees.length))
+    lhsSize += 1
   }
 
   def spanningAll(): Unit = {
     while ( ispanning() ) spanning()
   }
 
-  def prune( treenode: TreeNode ): Boolean = {
-//    println("[DEBUG] prune: %s -> %s".format(treenode.left.mkString(", "), treenode.right))
-
-    val trees:ArrayBuffer[TreeNode] = bottomSubtrees
-//    println("[DEBUG] before prunning bots len: %d".format(trees.length))
-    val indices = ArrayBuffer[Int]()
-    for ( node <- trees ) {
-      if ( node == treenode )
-        indices.append(trees.indexOf(node))
-    }
-    if ( indices.nonEmpty ) {
-      indices.map(trees.remove)
-      bottomSubtrees = trees
-//      println("[DEBUG] after prunning bots len: %d".format(bottomSubtrees.length))
-      true
-    }
-    else {
-      false
-    }
-
-  }
 }
 
 object testFDtree extends App {
-  var t = new FDTree(ArrayBuffer[String]("A", "B", "C", "D", "E"))
-  t.root.subtrees.foreach(println(_))
-//  t.spanning()
-//  var bots = t.unibottom()
-//  println(bots.length)
-//  for (node <- bots.take(50)) t.prune(node)
-//  t.spanning()
-//  t.spanning()
-//  t.spanning()
+
+  var t = new FDTree(Array[String]("A", "B", "C", "D", "E"))
+  val fds = mutable.Set[TreeNode]()
+  val nondepend = Set[TreeNode](new TreeNode(Set("A"), "B"), new TreeNode(Set("A"), "C"))
   while ( t.ispanning() ) {
     t.spanning()
-    val unibots = t.unibottom()
-    for ( node <- unibots ) {
-      println("[DEBUG] prune: %s -> %s".format(node.left.mkString("[", ", ", "]"), node.right))
+    val nodes = t.bottomNodes()
+    for ( node <- nodes ) {
+      if ( nondepend.contains(node) ) {
+        t.nontrivialMinNodes.add(node)
+        fds.add(node)
+      }
+//      println("[DEBUG] prune: %s -> %s".format(node.left.mkString("[", ", ", "]"), node.right))
     }
-    println("uni bots len: %d".format(t.unibottom().length))
     println("spanningLevel: %d".format(t.spanningLevel))
+    println("bots len: %d".format(t.bottomNodes().size))
+    println("nontrivialMinNodes len: %d".format(t.nontrivialMinNodes.size))
   }
+  fds.foreach(println)
 }
